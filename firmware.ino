@@ -1,256 +1,256 @@
-
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include <math.h>
 
-// Declare the PWM servo driver
+// Create the PCA9685 driver instance
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-#define SERVOMIN  122
-#define SERVOMAX  615
+// ----- Servo Parameters -----
+// The PCA9685 uses a 12-bit resolution (0–4095). When running at 60 Hz,
+// one period is ~16.67ms. With pulse widths between 500us and 2500us,
+// the corresponding counts are approximately:
+const uint16_t SERVOMIN = 123; // ~500us pulse
+const uint16_t SERVOMAX = 614; // ~2500us pulse
 
-#define h1 0
-#define h2 1
-#define h3 2
-#define h4 3
-
-#define k1 4
-#define k2 5
-#define k3 6
-#define k4 7
-
-#define f1 8
-#define f2 9
-#define f3 10
-#define f4 11
-
-int pos[4][3]; // 2D array for joint positions
-
-
-int ang(int ang) {
-    int pulse = map(ang, 0, 180, SERVOMIN, SERVOMAX);
-    return pulse;
+// Helper function to set a servo (by channel) to an angle in degrees (0-180)
+void setServo(uint8_t channel, float angle) {
+  // Map the angle to a pulse width (in PCA9685 counts)
+  uint16_t pulse = SERVOMIN + (uint16_t)((angle / 180.0) * (SERVOMAX - SERVOMIN));
+  pwm.setPWM(channel, 0, pulse);
 }
 
-void jang(int n) {
-    int h = pos[n][0];
-    int k = pos[n][1];
-    int f = pos[n][2];
+// ----- Global Variables and Constants for IK -----
+unsigned long interval = 1;
+unsigned long previousMillis = 0;
 
-    switch (n) {
-        case 0:
-            pwm.setPWM(h1, 0, ang(h));
-            pwm.setPWM(k1, 0, ang(k));
-            pwm.setPWM(f1, 0, ang(f));
-            break;
-        case 1:
-            pwm.setPWM(h2, 0, ang(h));
-            pwm.setPWM(k2, 0, ang(k));
-            pwm.setPWM(f2, 0, ang(f));
-            break;
-        case 2:
-            pwm.setPWM(h3, 0, ang(h));
-            pwm.setPWM(k3, 0, ang(k));
-            pwm.setPWM(f3, 0, ang(f));
-            break;
-        case 3:
-            pwm.setPWM(h4, 0, ang(h));
-            pwm.setPWM(k4, 0, ang(k));
-            pwm.setPWM(f4, 0, ang(f));
-            break;
-        default:
-            Serial.println("Invalid leg");
-    }
-}
+float Pi = 3.141592653589793;
+float G_C = 50.00; // ground clearance
+float Y_Offset;
+float D;
+float d;
+float R;
+float Coxa = 36.00;
+float Femur = 50.00;
+float Tibia = 85.00;
 
-void hello(){
+float Alpha_1;
+float Alpha_2;
+float Theta_1;
+float Theta_2;
+float Theta_3;
 
-  //makes the bot wave hello
-  
-    for (int i = 0; i < 3; i++) {
+float X_1, Y_1, Z_1;
+float X_2, Y_2, Z_2;
+float X_3, Y_3, Z_3;
+float X_4, Y_4, Z_4;
 
-    pos[1][0] = 0; //move left leg forward to improve stability
-    
-    pos[0][0] = 180;  pos[0][2] = 0;
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);
-    }
-    pos[0][0] = 160;  pos[0][2] = 0;
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);
-    };
- }
-}
-
-void rave(){
-  pos[0][0] = 90;
-  pos[1][0] = 90;
-  pos[2][0] = 90;
-  pos[3][0] = 90;
-  jang(1);jang(2);jang(3);jang(4);
-
-  pos[0][2] = 180;
-  pos[1][2] = 0;
-  pos[2][2] = 180;
-  pos[3][2] = 180;
-  jang(1);jang(2);jang(3);jang(4);
-
-}
-
-void x(){
-
-    pos[0][0] = 135;  pos[0][2] = 0;
-    pos[1][0] = 45;  pos[1][2] = 180;
-    pos[2][0] = 45;  pos[2][2] = 180;
-    pos[3][0] = 135;  pos[3][2] = 180;
-    for (int i = 0; i < 4; i++) {
-        jang(i);
-    }
-}
-
-void dumforward(int steps){
-    for (int i = 0; i < steps; i++) {
-        // Step 1: Move the first pair of legs forward (front right and back left)
-        pos[0][0] = 135; pos[0][2] = 90;  // Front right leg
-        pos[2][0] = 135; pos[2][2] = 90;  // Back left leg
-        pos[1][0] = 90; pos[1][2] = 180;  // Front left leg remains stationary
-        pos[3][0] = 90; pos[3][2] = 180;  // Back right leg remains stationary
-
-        for (int i = 0; i < 4; i++) {
-            jang(i);
-        }
-        delay(500);
-
-        // Step 2: Move the second pair of legs forward (front left and back right)
-        pos[0][0] = 90; pos[0][2] = 180;  // Front right leg remains stationary
-        pos[2][0] = 90; pos[2][2] = 0;  // Back left leg remains stationary
-        pos[1][0] = 135; pos[1][2] = 90;  // Front left leg
-        pos[3][0] = 135; pos[3][2] = 90;  // Back right leg
-
-        for (int i = 0; i < 4; i++) {
-            jang(i);
-        }
-        delay(500);
-
-        // Step 3: Reset legs to prepare for next cycle
-        pos[0][0] = 90; pos[0][2] = 180;  // Front right leg
-        pos[2][0] = 90; pos[2][2] = 0;  // Back left leg
-        pos[1][0] = 90; pos[1][2] = 180;  // Front left leg
-        pos[3][0] = 90; pos[3][2] = 180;  // Back right leg
-
-        for (int i = 0; i < 4; i++) {
-            jang(i);
-        }
-        delay(500);
-    }
-}
-
-void wait(){
-
-    pos[0][0] = 135;  pos[0][2] = 180;
-    pos[1][0] = 45;   pos[1][2] = 0;
-    pos[2][0] = 135;  pos[2][2] = 180;
-    pos[3][0] = 45;   pos[3][2] = 180;
-    for (int i = 0; i < 4; i++)
-        jang(i);
-
-    pos[1][0] = 90;
-        jang(1);
-
-    pos[1][0] = 0;  pos[1][2] = 180;
-    for (int i = 0; i < 4; i++) 
-        jang(i);
-
-}
-
-
-void forward(int steps){
-
-  for (int i=0;i<=steps;i++){
-    pos[0][0] = 90; pos[0][2] = 180; //1
-    pos[1][0] = 45; pos[1][2] = 0;
-    pos[2][0] = 135; pos[2][2] = 180;
-    pos[3][0] = 45; pos[3][2] = 90;
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-      
-    
-
-    pos[0][0] = 90; pos[0][2] = 90; //2
-    pos[1][0] = 45; pos[1][2] = 0;
-    pos[2][0] = 135; pos[2][2] = 180;
-    pos[3][0] = 90; pos[3][2] = 180;    
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-
-
-    pos[0][0] = 135; pos[0][2] = 180; //3
-    pos[1][0] = 90; pos[1][2] = 0;
-    pos[2][0] = 153; pos[2][2] = 180;
-    pos[3][0] = 45; pos[3][2] = 180;    
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-
-    
-    pos[0][0] = 135; pos[0][2] = 180; //4
-    pos[1][0] = 90; pos[1][2] = 0;
-    pos[2][0] = 153; pos[2][2] = 90;
-    pos[3][0] = 45; pos[3][2] = 180;    
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-
-
-    pos[0][0] = 135; pos[0][2] = 180; //5
-    pos[1][0] = 90; pos[1][2] = 90;
-    pos[2][0] = 90; pos[2][2] = 180;
-    pos[3][0] = 45; pos[3][2] = 180;    
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-
-    
-    pos[0][0] = 90; pos[0][2] = 180; //6
-    pos[1][0] = 45; pos[1][2] = 0;
-    pos[2][0] = 135; pos[2][2] = 180;
-    pos[3][0] = 27; pos[3][2] = 180;    
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);}
-
+// ----- Inverse Kinematics Functions -----
+void Rumus_IK_1() {
+  if (Z_1 > 0.00) {
+    D = sqrt(pow(X_1, 2) + pow(Z_1, 2));
+    Theta_1 = (atan(X_1 / Z_1)) * (180.00 / Pi);
+    d = D - Coxa;
+    Y_Offset = G_C - Y_1;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_1 == 0.00) {
+    D = sqrt(pow(X_1, 2) + pow(Z_1, 2));
+    Theta_1 = 90.00;
+    d = D - Coxa;
+    Y_Offset = G_C - Y_1;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_1 < 0.00) {
+    D = sqrt(pow(X_1, 2) + pow(Z_1, 2));
+    Theta_1 = 90.00 + (90.00 - fabs((atan(X_1 / Z_1)) * (180.00 / Pi)));
+    d = D - Coxa;
+    Y_Offset = G_C - Y_1;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
   }
 }
 
-void setup() {
-    Serial.begin(9600);
-
-    // Initialize I2C with custom SDA and SCL pins
-    Wire.begin(21, 22);
-    
-    pwm.begin();
-    pwm.setPWMFreq(60);
-
-     int initialPosition = 90;
-    for (int j = 0; j < 4; j++) {
-        pos[j][0] = initialPosition;
-        pos[j][1] = initialPosition;
-        pos[j][2] = initialPosition;
-        delay(500);
-    }
-
-    for (int i = 0; i < 4; i++) {
-        jang(i);
-    }
-    delay(1000);
+void Rumus_IK_2() {
+  if (Z_2 > 0.00) {
+    D = sqrt(pow(X_2, 2) + pow(Z_2, 2));
+    Theta_1 = (atan(X_2 / Z_2)) * (180.00 / Pi);
+    d = D - Coxa;
+    Y_Offset = G_C - Y_2;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_2 == 0.00) {
+    D = sqrt(pow(X_2, 2) + pow(Z_2, 2));
+    Theta_1 = 90.00;
+    d = D - Coxa;
+    Y_Offset = G_C - Y_2;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_2 < 0.00) {
+    D = sqrt(pow(X_2, 2) + pow(Z_2, 2));
+    Theta_1 = 90.00 + (90.00 - fabs((atan(X_2 / Z_2)) * (180.00 / Pi)));
+    d = D - Coxa;
+    Y_Offset = G_C - Y_2;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
 }
 
+void Rumus_IK_3() {
+  if (Z_3 > 0.00) {
+    D = sqrt(pow(X_3, 2) + pow(Z_3, 2));
+    Theta_1 = (atan(X_3 / Z_3)) * (180.00 / Pi);
+    d = D - Coxa;
+    Y_Offset = G_C - Y_3;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_3 == 0.00) {
+    D = sqrt(pow(X_3, 2) + pow(Z_3, 2));
+    Theta_1 = 90.00;
+    d = D - Coxa;
+    Y_Offset = G_C - Y_3;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_3 < 0.00) {
+    D = sqrt(pow(X_3, 2) + pow(Z_3, 2));
+    Theta_1 = 90.00 + (90.00 - fabs((atan(X_3 / Z_3)) * (180.00 / Pi)));
+    d = D - Coxa;
+    Y_Offset = G_C - Y_3;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+}
+
+void Rumus_IK_4() {
+  if (Z_4 > 0.00) {
+    D = sqrt(pow(X_4, 2) + pow(Z_4, 2));
+    Theta_1 = (atan(X_4 / Z_4)) * (180.00 / Pi);
+    d = D - Coxa;
+    Y_Offset = G_C - Y_4;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_4 == 0.00) {
+    D = sqrt(pow(X_4, 2) + pow(Z_4, 2));
+    Theta_1 = 90.00;
+    d = D - Coxa;
+    Y_Offset = G_C - Y_4;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+  else if (Z_4 < 0.00) {
+    D = sqrt(pow(X_4, 2) + pow(Z_4, 2));
+    Theta_1 = 90.00 + (90.00 - fabs((atan(X_4 / Z_4)) * (180.00 / Pi)));
+    d = D - Coxa;
+    Y_Offset = G_C - Y_4;
+    R = sqrt(pow(d, 2) + pow(Y_Offset, 2));
+    Alpha_1 = (acos(Y_Offset / R)) * (180.00 / Pi);
+    Alpha_2 = (acos((pow(Femur, 2) + pow(R, 2) - pow(Tibia, 2)) / (2 * Femur * R))) * (180.00 / Pi);
+    Theta_2 = Alpha_1 + Alpha_2;
+    Theta_3 = (acos((pow(Femur, 2) + pow(Tibia, 2) - pow(R, 2)) / (2 * Femur * Tibia))) * (180.00 / Pi);
+  }
+}
+
+// ----- Setup and Main Loop -----
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  pwm.begin();
+  pwm.setPWMFreq(60);  // Set frequency to 60 Hz
+
+  // ---- Initial (Stance) Position ----
+  // Leg 1 (Channels: Coxa_1=0, Femur_1=1, Tibia_1=2)
+  {
+    X_1 = 70.00;
+    Y_1 = 0.00;
+    Z_1 = 40.00;
+    Rumus_IK_1();
+    setServo(0, Theta_1);
+    setServo(1, Theta_2);
+    setServo(2, Theta_3);
+  }
+  // Leg 2 (Channels: Coxa_2=3, Femur_2=4, Tibia_2=5)
+  {
+    X_2 = 70.00;
+    Y_2 = 0.00;
+    Z_2 = -40.00;
+    Rumus_IK_2();
+    setServo(3, Theta_1);
+    setServo(4, 180.00 - Theta_2);
+    setServo(5, 180.00 - Theta_3);
+  }
+  // Leg 3 (Channels: Coxa_3=6, Femur_3=7, Tibia_3=8)
+  {
+    X_3 = 70.00;
+    Y_3 = 0.00;
+    Z_3 = 0.00;
+    Rumus_IK_3();
+    setServo(6, 180.00 - Theta_1);
+    setServo(7, 180.00 - Theta_2);
+    setServo(8, 180.00 - Theta_3);
+  }
+  // Leg 4 (Channels: Coxa_4=9, Femur_4=10, Tibia_4=11)
+  {
+    X_4 = 70.00;
+    Y_4 = 0.00;
+    Z_4 = 0.00;
+    Rumus_IK_4();
+    setServo(9, 180.00 - Theta_1);
+    setServo(10, Theta_2);
+    setServo(11, Theta_3);
+  }
+}
 
 void loop() {
-
-hello();
-delay(1000);
-}
+  // Use millis() to pace the motions
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    
+    // ---- Leg 3 Movement ----
+    // 1. Lift leg 3 (increasing Y)
+    Y_3 = 0.00;
+    do {
+      X_3 = 70.00;
+      Z_3 = 0.00;
+      Y_3 += 0.2;
+      Rumus_IK_3();
+      setServo(6, 180.00 - Theta_1);
+      setServo(7, 180.00
